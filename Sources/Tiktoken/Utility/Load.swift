@@ -83,32 +83,18 @@ private extension Load {
     static func toDictionary(array: [Int]) -> [Character: Int] {
         array.reduce(into: [:], { $0[Character($1)] = $1 })
     }
-    
-    // Fetch data
-    static func fetch(stringUrl: String) async throws -> Data? {
-        let urlHash = stringUrl.sha256
-
-        // Create a URL for cache file
-        let cacheFileURL = cacheDirectoryURL.appendingPathComponent("\(urlHash)")
-
-        // Check if the data exists in cache
-        if FileManager.default.fileExists(atPath: cacheFileURL.path) {
-            let data = try? Data(contentsOf: cacheFileURL)
-            return data
-        } else {
-            guard let url = URL(string: stringUrl) else { return nil }
-            let (data, _) = try await URLSession.shared.data(from: url)
-
-            // Save data to cache
-            do {
-                try data.write(to: cacheFileURL)
-            } catch {
-                print("Error while caching: \(error)")
-            }
-
-            return data
-        }
-    }
+	
+	static func fetch(stringUrl: String) async throws -> Data? {
+		return try await withCheckedThrowingContinuation { continuation in
+			fetch(stringUrl: stringUrl) { data, error in
+				if let error = error {
+					continuation.resume(throwing: error)
+				} else {
+					continuation.resume(returning: data)
+				}
+			}
+		}
+	}
     
     static func getVocab(url: String) async -> [(String, String)] {
         guard let data = try? await fetch(stringUrl: url),
@@ -132,4 +118,40 @@ private extension Load {
         else { return [:] }
         return decoded
     }
+	
+	private static func fetch(stringUrl: String, completion: @escaping (Data?, Error?) -> Void) {
+		let urlHash = stringUrl.sha256
+		let cacheFileURL = cacheDirectoryURL.appendingPathComponent("\(urlHash)")
+		
+		if FileManager.default.fileExists(atPath: cacheFileURL.path) {
+			if let data = try? Data(contentsOf: cacheFileURL) {
+				completion(data, nil)
+			} else {
+				completion(nil, NSError(domain: "", code: -1, userInfo: ["Description": "Failed to read cache"]))
+			}
+		} else {
+			guard let url = URL(string: stringUrl) else {
+				completion(nil, NSError(domain: "", code: -1, userInfo: ["Description": "Invalid URL"]))
+				return
+			}
+			
+			let _ = URLSession.shared.dataTask(with: url) { (data, _, error) in
+				if let error = error {
+					completion(nil, error)
+					return
+				}
+				
+				if let data = data {
+					do {
+						try data.write(to: cacheFileURL)
+						completion(data, nil)
+					} catch {
+						completion(nil, error)
+					}
+				} else {
+					completion(nil, NSError(domain: "", code: -1, userInfo: ["Description": "No data received"]))
+				}
+			}.resume()
+		}
+	}
 }
