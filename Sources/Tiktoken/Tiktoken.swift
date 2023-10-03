@@ -14,7 +14,7 @@ public class Tiktoken {
 		"<|endofprompt|>": 100276
 	]
 	
-	init() async {
+	public init() async {
 		let encoder = await Load.loadTiktokenBpe(url: url)
 		let regex = try! NSRegularExpression(pattern: pattern)
 		let encoding = Encoding(regex: regex, mergeableRanks: encoder, specialTokens: specialTokens)
